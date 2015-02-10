@@ -42,7 +42,7 @@ public class TicTacToeClient2 {
     private ImageIcon icon;
     private ImageIcon opponentIcon;
 
-    private Square[] board = new Square[9];
+    private Square[] board = new Square[100];
     private Square currentSquare;
 
     private static int PORT = 8901;
@@ -81,7 +81,7 @@ public class TicTacToeClient2 {
 
         JPanel boardPanel = new JPanel();
         boardPanel.setBackground(Color.black);
-        boardPanel.setLayout(new GridLayout(3, 3, 2, 2));
+        boardPanel.setLayout(new GridLayout(10, 10, 9, 9));
         for (int i = 0; i < board.length; i++) {
             final int j = i;
             board[i] = new Square();
@@ -187,9 +187,9 @@ public class TicTacToeClient2 {
     {
         TicTacToeClient2 client = new TicTacToeClient2();
         client.frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        client.frame.setSize(240, 160);
+        client.frame.setSize(340, 260);
         client.frame.setVisible(true);
-        client.frame.setResizable(false);
+        client.frame.setResizable(true);
         while (true) {
 
  //           String serverAddress = (args.length == 0) ? "new-host-5.home" : args[1];

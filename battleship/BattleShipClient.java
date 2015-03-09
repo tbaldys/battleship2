@@ -27,7 +27,7 @@ public class BattleShipClient
     private BufferedReader in;
     private PrintWriter out;
 	private JFrame frame = new JFrame("BattleShip");
-	private JPanel topLine = new JPanel();    // holds turnPanel and boardPanel
+	private JPanel mainPanel = new JPanel();    // holds turnPanel and boardPanel
 	private JPanel bottom = new JPanel();		// holds youPanel and opponentPanel	
     private JPanel turnPanel = new JPanel();		//tells whose turn it is and holds action and message panels
     private JPanel actionPanel = new JPanel(); 		
@@ -76,6 +76,7 @@ public class BattleShipClient
            	you.setId(Integer.parseInt(getServerResponse()));
            	// respond with your player name
             you.setName(getPlayerName());
+            frame.setTitle("BattleShip: " + you.getName());
             sendToServer("" + gameStage + you.getName());
             // set stage to WAITING until you get the opponent's information
             gameStage = BattleShipServer.WAITING;
@@ -90,18 +91,21 @@ public class BattleShipClient
         // you will communicate your name/ship data, opponent's will be returned
         youLabel.setText(you.getName());
         // Layout GUI
-        frame.setLayout(new GridLayout(2, 1, 1, 1));
-        frame.getContentPane().add(topLine);
-        topLine.setLayout(new GridLayout(1, 2, 1, 1));
-        topLine.add(turnPanel);
-        turnPanel.setLayout(new GridLayout(2, 1, 1, 1));
+        frame.getContentPane().add(mainPanel);
+        mainPanel.setLayout(new GridLayout(1, 2, 10, 10));
+        mainPanel.add(turnPanel);
+        turnPanel.setLayout(new GridLayout(3, 1, 10, 10));
         actionPanel.setLayout(new GridLayout(1, 3, 10, 10));
         actionPanel.add(new JPanel());
         actionButton.setFont(tmFonts.PLAIN32);
         actionPanel.add(actionButton);
         turnPanel.add(actionPanel);
         turnPanel.add(messageLabel);
-        topLine.add(boardPanel);
+        bottom.setLayout(new GridLayout(1, 2, 10, 10));
+        bottom.add(youPanel);
+        bottom.add(oppPanel);
+        turnPanel.add(bottom);
+        mainPanel.add(boardPanel);
         boardPanel.setLayout(new GridLayout(10, 10, 1, 1));
         for (int i = 0; i < BattleShipServer.SIZE; i++)
         {
@@ -118,10 +122,6 @@ public class BattleShipClient
         		boardPanel.add(o);
         	}	
         }
-        frame.getContentPane().add(bottom);
-        bottom.setLayout(new GridLayout(1, 2, 1, 1));
-        bottom.add(youPanel);
-        bottom.add(oppPanel);
     }
     public void sendToServer(String s)
     {
@@ -153,39 +153,41 @@ public class BattleShipClient
     {
     	try
     	{
-    		if (gameStage == BattleShipServer.PLAYING)
-    		{
-    			// during this stage, the message from the server will be
-    			// column 1: 3 (gameStage) --> will be stripped by getServerResponse()
-    			// column 2:   (id of currentPlayer)
-    			// column 3:   (shipsLeft of currentPlayer)
-    			// column 4:   (boardToString of currentPlayer's opponent, 100 chars if it's their board, 200 if it's yours)
-    			String temp = getServerResponse();
-    			// whose turn is it? -- update whoever's information it is
-    			int currentPlayer = Integer.parseInt(temp.substring(0, 1));
-    			int currentShots = Integer.parseInt(temp.substring(1, 2));
-    			if (currentPlayer == you.getId())
-    			{
-    				you.setShips(currentShots);
-    				this.currentPlayerLabel.setText(you.getName());
-    			}
-    			else
-    			{
-    				opp.setShips(currentShots);
-    				this.currentPlayerLabel.setText(opp.getName());
-    			}
-    			System.out.println("currentPlayerLabel is set to " + currentPlayerLabel.getText());
-    			displayBoard(temp.substring(3));
-    		}
-    		else if (gameStage == BattleShipServer.WAITING)
-    		{
-    			String temp = getServerResponse();
-    			opp.setId(Integer.parseInt(temp.substring(0, 1)));
-    			opp.setName(temp.substring(2));
-    			oppLabel.setText(opp.getName());
-    			gameStage = BattleShipServer.PLAYING;
-    			sendToServer("" + gameStage + BattleShipServer.READY);
-    		}
+    		while (true)
+    		{	
+	    		if (gameStage > BattleShipServer.PLACING)
+	    		{
+	    			// during this stage, the message from the server will be
+	    			// column 1: 3 (gameStage) --> will be stripped by getServerResponse()
+	    			// column 2:   (id of currentPlayer)
+	    			// column 3:   (shipsLeft of currentPlayer)
+	    			// column 4:   (boardToString of currentPlayer's opponent, 100 chars if it's their board, 200 if it's yours)
+	    			String temp = getServerResponse();
+	    			// whose turn is it? -- update whoever's information it is
+	    			int currentPlayer = Integer.parseInt(temp.substring(0, 1));
+	    			int currentShots = Integer.parseInt(temp.substring(1, 2));
+	    			if (currentPlayer == you.getId())
+	    			{
+	    				you.setShips(currentShots);
+	    				this.currentPlayerLabel.setText(you.getName());
+	    			}
+	    			else
+	    			{
+	    				opp.setShips(currentShots);
+	    				this.currentPlayerLabel.setText(opp.getName());
+	    			}
+	    			displayBoard(temp.substring(3));
+	    		}
+	    		else if (gameStage == BattleShipServer.WAITING)
+	    		{
+	    			String temp = getServerResponse();
+	    			opp.setId(Integer.parseInt(temp.substring(0, 1)));
+	    			opp.setName(temp.substring(2));
+	    			oppLabel.setText(opp.getName());
+	    			gameStage = BattleShipServer.YOURTURN;
+	    			sendToServer("" + gameStage + BattleShipServer.READY);
+	    		}
+    		}	
         }
         catch (Exception e)
         {

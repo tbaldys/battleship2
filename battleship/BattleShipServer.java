@@ -20,7 +20,9 @@ public class BattleShipServer
 	public static final int CONNECTING = 0;
 	public static final int WAITING = 1;
 	public static final int PLACING = 2;
-	public static final int PLAYING = 3;
+	public static final int YOURTURN = 3;
+	public static final int THEIRTURN = 4;
+	public static final String[] MESSAGES = {"Waiting for an opponent.", "Placing your ships.", "It's your turn.", "It's your opponents's turn."};
 	public static final int UNTESTED = 0;
 	public static final int AIMED = 1;
 	public static final int HIT = 2;
@@ -204,13 +206,8 @@ class BattleShipGame
             	throw new Exception(e);
             }
         }
-        public String boardToString()
+        public String boardToString(boolean me)
         {
-        	boolean me = false;
-        	if (game.getCurrentPlayer() == playerID)
-        	{
-        		me = true;
-        	}
         	StringBuilder sb = new StringBuilder("");
             for (int i = 0; i < BattleShipServer.SIZE; i++)
             {
@@ -265,7 +262,7 @@ class BattleShipGame
                 this.opponent = opponent;
             	// send the opponent's data to the client, then change status
                 sendToClient("" + gameStage + opponent.toString());
-            	gameStage = BattleShipServer.PLAYING;			// in future, set to PLACING
+            	gameStage = BattleShipServer.YOURTURN;			// in future, set to PLACING
             }
         }
         public int getGameStage()
@@ -296,11 +293,11 @@ class BattleShipGame
             		StringBuilder sb = new StringBuilder("" + gameStage + game.getCurrentPlayer());
             		if (game.getCurrentPlayer() == playerID)	// it's your turn
             		{
-            			sb.append("" + shipsLeft + opponent.boardToString());
+            			sb.append("" + shipsLeft + opponent.boardToString(false));
             		}
             		else
             		{
-            			sb.append("" + opponent.shipsLeft + boardToString());
+            			sb.append("" + opponent.shipsLeft + boardToString(true));
             		}
             		sendToClient(sb.toString());
             		while (true) {}
@@ -314,7 +311,8 @@ class BattleShipGame
             finally 
             {
             	game.getServer().getLog().error("Game " + game.getID() + ", Player " + playerID + " closing socket.");
-                try {socket.close();} catch (IOException e) {}
+                
+            	try {socket.close();} catch (IOException e) {}
             }
         }
         private class Ship

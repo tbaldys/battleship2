@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 
 import org.ToMar.Utils.*;
 
@@ -17,17 +18,22 @@ public class BattleShipServer
 {
 	public static final int SIZE = 10;
 	public static final int TOTALSHIPS = 5;
-	public static final int CONNECTING = 0;
-	public static final int WAITING = 1;
+	public static final int CONNECTING = 0;		//you connect, server sends id
+	public static final int WAITING = 1;		//you send name, server sends opponent
 	public static final int PLACING = 2;
-	public static final int YOURTURN = 3;
-	public static final int THEIRTURN = 4;
-	public static final String[] MESSAGES = {"Waiting for an opponent.", "Placing your ships.", "It's your turn.", "It's your opponents's turn."};
+	public static final int YOURTURN = 3;		//you say ready, server sends oppboard
+	public static final int YOURANSWER = 4;		//you send shots, server sends updated oppboard
+	public static final int THEIRTURN = 5;		//you say ready, server sends yourboard
+	public static final int THEIRANSWER = 6;	//you say ready, server sends updated board
+	public static final int YOUWON = 7;
+	public static final int THEYWON = 8;
+	public static final int GAMEOVER = 9;
 	public static final int UNTESTED = 0;
 	public static final int AIMED = 1;
 	public static final int HIT = 2;
 	public static final int MISS = 3;
 	public static final String READY = "READY";
+	public static final int[] SHIPLENGTHS = {5, 4, 3, 3, 2};
 	private tmLog log = new tmLog(tmLog.TRACE);
 	private ServerSocket listener;
 	
@@ -82,19 +88,20 @@ class BattleShipGame
 	BattleShipServer server;
 	Player[] players = new Player[2];
 	int gameID;
-	int currentPlayer = 0;
+	int updateFlag = -1;
+	boolean active;
 	
 	public BattleShipGame(BattleShipServer server, int gameNumber)
     {
     	this.server = server;
     	gameID = gameNumber;
+    	active = true;
     	server.getLog().debug("BattleShipGame: constructing game " + gameID + " on server " + server);
     	try
     	{
     		for (int i = 0; i < 2; i++)
     		{	
     			players[i] = new Player(server.getListener().accept(), this, i);
-//    	    	server.getLog().debug("BattleShipGame: Player " + i + " is " + players[i].toString());
     		}	
     	}
     	catch (Exception e)
@@ -106,13 +113,31 @@ class BattleShipGame
     	players[0].start();
     	players[1].start();
     }
-    public int getCurrentPlayer()
+	/*
+	 * updateFlag will be set whenever shots are evaluated, then turned immediately back off
+	 */
+	public boolean retrieveAndFlipFlag(int playerID)
 	{
-		return currentPlayer;
+		if (updateFlag == playerID)
+		{
+			updateFlag = -1;
+    		server.getLog().debug("Retrieved updateFlag and reset to -1");
+			return true;
+		}
+		return false;
 	}
-	public void setCurrentPlayer(int currentPlayer)
+	public void setUpdateFlag(int playerID)
 	{
-		this.currentPlayer = currentPlayer;
+		server.getLog().debug("update flag set for pickup by player" + playerID);
+		this.updateFlag = playerID;
+	}
+	public boolean isActive()
+	{
+		return active;
+	}
+	public void setActive(boolean active)
+	{
+		this.active = active;
 	}
     public int getID()
     {
@@ -152,14 +177,21 @@ class BattleShipGame
             this.playerID = playerID;
             try 
             {
-//            	game.getServer().getLog().debug("Game " + game.getID() + ", Player " + playerID + " says hello.");
                 input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 output = new PrintWriter(socket.getOutputStream(), true);
-                // gameStage is CONNECTING, send a playerID to the client
+                /*
+                 * gameStage is CONNECTING
+                 *   send a playerID to the client
+                 *   client responds with their name
+                 */
                 sendToClient("" + gameStage + playerID);
-                // gameStage is CONNECTING, client sends back player name
                 setPlayerName(getClientResponse());
-                // set stage to WAITING; will be updated when there's another player
+                /*
+                 * gameStage set to WAITING
+                 * 		when an opponent signs on, setOpponent will update stage to PLACING
+                 * 		when ships are placed, stage will be either YOURTURN or THEIRTURN
+                 * 		all activity then shifts to run method		
+                 */
                 gameStage = BattleShipServer.WAITING;
             } 
             catch (Exception e)
@@ -176,6 +208,7 @@ class BattleShipGame
             for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
             {
             	ships[i] = new Ship(i);
+            	game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " calling placeShip " + i);
             	placeShip(ships[i], 0, i + 1, false);
             }
         }
@@ -189,7 +222,7 @@ class BattleShipGame
         	try
         	{
         		String temp = input.readLine();
-        		server.getLog().debug("Player " + playerID + " Client responded: +" + temp + "+");
+        		server.getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " Client responded: +" + temp + "+");
         		if (gameStage == Integer.parseInt(temp.substring(0, 1)))
         		{
         			return temp.substring(1);
@@ -215,7 +248,7 @@ class BattleShipGame
             	{
             		if (me)
             		{	
-            			sb.append("" + board[i][j].getContents() + board[i][j].getStatus());
+            			sb.append("" + board[i][j].getStatus() + board[i][j].getContents());
             		}
             		else
             		{	
@@ -238,18 +271,27 @@ class BattleShipGame
         	ship.setStartRow(row);
         	ship.setStartCol(col);
         	ship.setHorizontal(horizontal);
-        	for (int i = 0; i < ship.getSize(); i++)
-        	{	
-        		board[row][col].setContents(ship.getId());
-        		if (horizontal)
-        		{
-        			col += 1;
-        		}
-        		else
-        		{
-        			row += 1;
-        		}
-        	}	
+        	try
+        	{
+	        	for (int i = 0; i < BattleShipServer.SHIPLENGTHS[ship.getId() - 1]; i++)
+	        	{	
+	        		board[row][col].setContents(ship.getId());
+	        		game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " Placing ship " + ship.getId() + " row " + row + " col " + col);
+	        		ship.add(board[row][col]);
+	        		if (horizontal)
+	        		{
+	        			col += 1;
+	        		}
+	        		else
+	        		{
+	        			row += 1;
+	        		}
+	        	}	
+        	}
+        	catch (Exception e)
+        	{
+        		game.getServer().getLog().error("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " ERROR: " + e);
+        	}
         	return true;
         }
         /**
@@ -262,7 +304,8 @@ class BattleShipGame
                 this.opponent = opponent;
             	// send the opponent's data to the client, then change status
                 sendToClient("" + gameStage + opponent.toString());
-            	gameStage = BattleShipServer.YOURTURN;			// in future, set to PLACING
+//              gameStage = BattleShipServer.PLACING;
+            	gameStage = (playerID == 0) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;			// in future, set to PLACING
             }
         }
         public int getGameStage()
@@ -274,35 +317,92 @@ class BattleShipGame
 			this.gameStage = gameStage;
 		}
         /**
-         * The run method of this thread.
+         * The run method of this Player's thread.
          */
         public void run() 
         {
         	// this method is launched after all players are connected
-        	// only coding for gameStage == PLAYING (ships are hard-coded for now)
+        	// only coding for gameStage > PLACING (ships are hard-coded for now)
+        	/*
+        	 * You say 3, you get sent oppboard (server is now waiting for 4)
+        	 * You say 4, you get sent updated oppboard (server is now waiting for 5)
+        	 * You say 5, when opp has said 6, you see your board
+        	 * You say 6, when opp has said 4, you see your updated board
+        	 * You say 3...
+        	 */
             try 
             {
-            	String resp = getClientResponse();
-            	if (BattleShipServer.READY.equalsIgnoreCase(resp))
-            	{
-        			// during this stage, the message from the server will be
-        			// column 1: 3 (gameStage)
-        			// column 2:   (id of currentPlayer)
-        			// column 3:   (shipsLeft of currentPlayer)
-        			// column 4:   (boardToString of currentPlayer's opponent, 100 chars if it's their board, 200 if it's yours)
-            		StringBuilder sb = new StringBuilder("" + gameStage + game.getCurrentPlayer());
-            		if (game.getCurrentPlayer() == playerID)	// it's your turn
-            		{
-            			sb.append("" + shipsLeft + opponent.boardToString(false));
-            		}
-            		else
-            		{
-            			sb.append("" + opponent.shipsLeft + boardToString(true));
-            		}
-            		sendToClient(sb.toString());
-            		while (true) {}
+        		while (true) 
+        		{
+        			if (!game.isActive())
+        			{
+                    	gameStage = BattleShipServer.GAMEOVER;
+	            		sendToClient("" + gameStage);
+	            		break;
+        			}
+	            	String resp = getClientResponse();
+	            	if (gameStage == BattleShipServer.THEIRTURN)
+	            	{
+	            		if (BattleShipServer.READY.equalsIgnoreCase(resp))
+		            	{
+		            		sendToClient("" + gameStage + opponent.shipsLeft + shipsLeft + boardToString(true));
+		            		gameStage = BattleShipServer.THEIRANSWER;
+		            	}
+		            	else
+		            	{
+		            		game.getServer().getLog().error("ERROR 101");
+		            	}
+	            	}	
+		            else if (gameStage == BattleShipServer.THEIRANSWER)
+		            {
+		            	if (BattleShipServer.READY.equalsIgnoreCase(resp))
+		            	{
+			            	/*
+			            	 *  stage is THEIRANSWER
+			            	 *  you want to send them an updated board as soon as flag is set
+			            	 */
+		            		while(!game.retrieveAndFlipFlag(playerID))
+		            		{
+		            		}
+		            		sendToClient("" + gameStage + opponent.shipsLeft + shipsLeft + boardToString(true));
+		            		gameStage = (shipsLeft == 0) ? BattleShipServer.THEYWON : BattleShipServer.YOURTURN;
+		            	}
+		            	else
+		            	{
+		            		game.getServer().getLog().error("ERROR 102");
+		            	}
+		            }	
+	            	else if (gameStage == BattleShipServer.YOURTURN)
+	            	{	
+		            	if (BattleShipServer.READY.equalsIgnoreCase(resp))
+		            	{
+			            	/*
+			            	 *  stage is YOURTURN
+			            	 *  	send opponent's board
+			            	 */
+		            		sendToClient("" + gameStage + shipsLeft + opponent.shipsLeft + opponent.boardToString(false));
+		            		gameStage = BattleShipServer.YOURANSWER;
+		            	}
+		            	else
+		            	{
+		            		game.getServer().getLog().error("ERROR 103");
+		            	}
+	            	}
+	            	else if (gameStage == BattleShipServer.YOURANSWER)
+	            	{	
+		            	/*
+		            	 *  stage is YOURANSWER
+		            	 *  	process shots
+		            	 *  	send updated board
+		            	 *  	next response will relinquish turn
+		            	 */
+		            	processShots(resp);
+		            	game.setUpdateFlag(opponent.playerID);
+//		            	game.getServer().getLog().debug("shipsLeft is " + shipsLeft + ", opp is " + opponent.shipsLeft);
+	            		sendToClient("" + gameStage + shipsLeft + opponent.shipsLeft + opponent.boardToString(false));
+	            		gameStage = (opponent.shipsLeft == 0) ? BattleShipServer.YOUWON : BattleShipServer.THEIRTURN;
+	            	}
             	}
-            	
             } 
             catch (Exception e) 
             {
@@ -311,27 +411,94 @@ class BattleShipGame
             finally 
             {
             	game.getServer().getLog().error("Game " + game.getID() + ", Player " + playerID + " closing socket.");
-                
             	try {socket.close();} catch (IOException e) {}
+            	game.setActive(false);
             }
         }
-        private class Ship
+        public void processShots(String s)
         {
-        	private int[] shipLengths = {5, 4, 3, 3, 2};
-        	private int id;
-        	private int size;
-        	private boolean horizontal;
-        	private int startRow;
-        	private int startCol;
-        	
-        	public Ship(int idx)
+        	try
         	{
-        		this.id = idx + 1;
-        		this.size = shipLengths[idx];
-        		this.horizontal = false;				// will be set later
-        		this.startRow = 0;						// will be set later
-        		this.startCol = idx;					// will be set later
+        		int sh = Integer.parseInt(s.substring(0,1));
+        		int ctr = 1;
+        		for (int i = 0; i < sh; i++)
+        		{
+        			int row = Integer.parseInt(s.substring(ctr, ++ctr));
+        			int col = Integer.parseInt(s.substring(ctr, ++ctr));
+        			if (applyShot(row, col))
+        			{
+        				// you hit something, see if you sank a ship
+        				int counter = 0;
+        				for (int j = 0; j < BattleShipServer.TOTALSHIPS; j++)
+        				{
+       						if (opponent.ships[j].isStillAlive())
+       						{
+       							counter += 1;
+        					}
+        				}
+        				opponent.shipsLeft = counter;
+        			}
+        		}
         	}
+        	catch(Exception e)
+        	{
+            	game.getServer().getLog().error("Game " + game.getID() + ", Player " + playerID + " process shots from " + s + ": " + e);
+        	}
+        }
+        public boolean applyShot(int r, int c)
+        {
+        	if (opponent.board[r][c].getStatus() == BattleShipServer.UNTESTED)
+        	{
+        		int cc = opponent.board[r][c].getContents();
+        		if (cc == 0)			// nothing there
+        		{
+        			opponent.board[r][c].setStatus(BattleShipServer.MISS);
+        			return false;
+        		}
+        		else
+        		{
+        			opponent.board[r][c].setStatus(BattleShipServer.HIT);
+        			return true;
+        		}
+        	}
+        	else
+        	{
+            	game.getServer().getLog().error("Game " + game.getID() + ", Player " + playerID + " apply shot " + r + ", " + c + ", status is not UNTESTED");
+        	}
+        	return false;
+        }
+        private class Ship extends ArrayList<GridSquare>
+        {
+        	private int id;
+        	private boolean horizontal= false;
+        	private int startRow = 0;
+        	private int startCol = 0;
+        	
+			public Ship(int idx)
+        	{
+				super(BattleShipServer.SHIPLENGTHS[idx]);
+        		this.id = idx + 1;
+        	}
+			public boolean isStillAlive()
+			{
+				for (int i = 0; i < this.size(); i++)
+				{
+					if (this.get(i).getStatus() != BattleShipServer.HIT)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+        	public GridSquare getSquare(int idx)
+			{
+				return this.get(idx);
+			}
+			public void setSquare(GridSquare s, int idx)
+			{
+        		game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " idx is " + idx + ", square is " + s); 
+				this.set(idx, s);
+			}
 			public int getId()
 			{
 				return id;
@@ -339,14 +506,6 @@ class BattleShipGame
 			public void setId(int id)
 			{
 				this.id = id;
-			}
-			public int getSize()
-			{
-				return size;
-			}
-			public void setSize(int size)
-			{
-				this.size = size;
 			}
 			public boolean isHorizontal()
 			{
@@ -375,13 +534,9 @@ class BattleShipGame
         }
         private class GridSquare
         {
-        	static final int UNTESTED = 0;
-        	static final int SHOTAIMED = 1;
-        	static final int NOSHIP = 2;
-			static final int SHIP = 3;
 			private int row;
         	private int column;
-        	private int status= 0;			// corresponds to display icons
+        	private int status = BattleShipServer.UNTESTED;
         	private int contents = 0;		// will hold boatID if one is there
         	
         	public GridSquare(int row, int col)

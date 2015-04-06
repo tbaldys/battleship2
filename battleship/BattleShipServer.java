@@ -89,6 +89,7 @@ class BattleShipGame
 	Player[] players = new Player[2];
 	int gameID;
 	int updateFlag = -1;
+	boolean[] readyToPlay = {false, false};
 	boolean active;
 	
 	public BattleShipGame(BattleShipServer server, int gameNumber)
@@ -143,6 +144,15 @@ class BattleShipGame
     {
     	return gameID;
     }
+    public boolean notReadyYet(int playerId)
+    {
+    	readyToPlay[playerId] = true;
+    	if (readyToPlay[0] && readyToPlay[1])
+    	{
+    		return false;
+    	}
+    	return true;
+    }
 	public BattleShipServer getServer()
 	{
 		return server;
@@ -166,7 +176,7 @@ class BattleShipGame
         BufferedReader input;
         PrintWriter output;
 
-        public String toString()
+		public String toString()
         {
         	return "" + playerID + shipsLeft + playerName;
         }
@@ -208,8 +218,6 @@ class BattleShipGame
             for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
             {
             	ships[i] = new Ship(i);
-            	game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " calling placeShip " + i);
-            	placeShip(ships[i], 0, i + 1, false);
             }
         }
         public void sendToClient(String s)
@@ -268,23 +276,31 @@ class BattleShipGame
 		}
         public boolean placeShip(Ship ship, int row, int col, boolean horizontal)
         {
+        	// if there's anything in any of the places, return false
         	ship.setStartRow(row);
         	ship.setStartCol(col);
         	ship.setHorizontal(horizontal);
         	try
         	{
 	        	for (int i = 0; i < BattleShipServer.SHIPLENGTHS[ship.getId() - 1]; i++)
-	        	{	
-	        		board[row][col].setContents(ship.getId());
-	        		game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " Placing ship " + ship.getId() + " row " + row + " col " + col);
-	        		ship.add(board[row][col]);
-	        		if (horizontal)
-	        		{
-	        			col += 1;
+	        	{
+	        		if (board[row][col].getContents() == BattleShipServer.UNTESTED)
+	        		{	
+	        			board[row][col].setContents(ship.getId());
+//	        			game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " Placing ship " + ship.getId() + " row " + row + " col " + col);
+	        			ship.add(board[row][col]);
+	        			if (horizontal)
+	        			{
+	        				col += 1;
+	        			}
+	        			else
+	        			{
+	        				row += 1;
+	        			}
 	        		}
 	        		else
 	        		{
-	        			row += 1;
+	        			return false;
 	        		}
 	        	}	
         	}
@@ -304,8 +320,7 @@ class BattleShipGame
                 this.opponent = opponent;
             	// send the opponent's data to the client, then change status
                 sendToClient("" + gameStage + opponent.toString());
-//              gameStage = BattleShipServer.PLACING;
-            	gameStage = (playerID == 0) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;			// in future, set to PLACING
+                gameStage = BattleShipServer.PLACING;
             }
         }
         public int getGameStage()
@@ -334,14 +349,33 @@ class BattleShipGame
             {
         		while (true) 
         		{
-        			if (!game.isActive())
+/*        			if (!game.isActive())
         			{
                     	gameStage = BattleShipServer.GAMEOVER;
 	            		sendToClient("" + gameStage);
 	            		break;
         			}
-	            	String resp = getClientResponse();
-	            	if (gameStage == BattleShipServer.THEIRTURN)
+*/	            	String resp = getClientResponse();
+	            	if (gameStage == BattleShipServer.PLACING)
+	            	{
+	            		// process ship placement
+	            		if (placeShips(resp))
+	            		{	
+	            			// respond with playerID of player who goes first
+	            			int firstPlayer = game.getID() % 2;
+	            			// at this point you want to wait until both players have placed their ships
+	            			while (game.notReadyYet(playerID))
+	            			{
+	            			}
+		            		sendToClient("" + gameStage + firstPlayer);
+	            			gameStage = (playerID == firstPlayer) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;			// in future, set to PLACING
+	            		}
+	            		else
+	            		{
+		            		sendToClient("" + gameStage + BattleShipServer.READY);
+	            		}
+	            	}
+	            	else if (gameStage == BattleShipServer.THEIRTURN)
 	            	{
 	            		if (BattleShipServer.READY.equalsIgnoreCase(resp))
 		            	{
@@ -378,7 +412,7 @@ class BattleShipGame
 		            	{
 			            	/*
 			            	 *  stage is YOURTURN
-			            	 *  	send opponent's board
+			            	 *  	send opponent's board as soon as ships are placed
 			            	 */
 		            		sendToClient("" + gameStage + shipsLeft + opponent.shipsLeft + opponent.boardToString(false));
 		            		gameStage = BattleShipServer.YOURANSWER;
@@ -414,6 +448,29 @@ class BattleShipGame
             	try {socket.close();} catch (IOException e) {}
             	game.setActive(false);
             }
+        }
+        public boolean placeShips(String s)
+        {
+        	int ctr = 0;
+        	try
+        	{
+        		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
+        		{
+        			int row = Integer.parseInt(s.substring(ctr, ++ctr));
+        			int col = Integer.parseInt(s.substring(ctr, ++ctr));
+        			int temp = Integer.parseInt(s.substring(ctr, ++ctr));
+        			boolean hor = (temp == 0) ? false : true;
+        			if (!placeShip(ships[i], row, col, hor))
+        			{
+        				return false;
+        			}
+        		}
+        	}
+        	catch(Exception e)
+        	{
+            	game.getServer().getLog().error("Game " + game.getID() + ", Player " + playerID + " place ship " + s + ": " + e);
+        	}
+        	return true;
         }
         public void processShots(String s)
         {
@@ -467,115 +524,115 @@ class BattleShipGame
         	}
         	return false;
         }
-        private class Ship extends ArrayList<GridSquare>
-        {
-        	private int id;
-        	private boolean horizontal= false;
-        	private int startRow = 0;
-        	private int startCol = 0;
-        	
-			public Ship(int idx)
-        	{
-				super(BattleShipServer.SHIPLENGTHS[idx]);
-        		this.id = idx + 1;
-        	}
-			public boolean isStillAlive()
+    }
+    private class Ship extends ArrayList<GridSquare>
+    {
+    	private int id;
+    	private boolean horizontal= false;
+    	private int startRow = 0;
+    	private int startCol = 0;
+    	
+		public Ship(int idx)
+    	{
+			super(BattleShipServer.SHIPLENGTHS[idx]);
+    		this.id = idx + 1;
+    	}
+		public boolean isStillAlive()
+		{
+			for (int i = 0; i < this.size(); i++)
 			{
-				for (int i = 0; i < this.size(); i++)
+				if (this.get(i).getStatus() != BattleShipServer.HIT)
 				{
-					if (this.get(i).getStatus() != BattleShipServer.HIT)
-					{
-						return true;
-					}
+					return true;
 				}
-				return false;
 			}
-        	public GridSquare getSquare(int idx)
-			{
-				return this.get(idx);
-			}
-			public void setSquare(GridSquare s, int idx)
-			{
-        		game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " idx is " + idx + ", square is " + s); 
-				this.set(idx, s);
-			}
-			public int getId()
-			{
-				return id;
-			}
-			public void setId(int id)
-			{
-				this.id = id;
-			}
-			public boolean isHorizontal()
-			{
-				return horizontal;
-			}
-			public void setHorizontal(boolean horizontal)
-			{
-				this.horizontal = horizontal;
-			}
-			public int getStartRow()
-			{
-				return startRow;
-			}
-			public void setStartRow(int startRow)
-			{
-				this.startRow = startRow;
-			}
-			public int getStartCol()
-			{
-				return startCol;
-			}
-			public void setStartCol(int startCol)
-			{
-				this.startCol = startCol;
-			}
-        }
-        private class GridSquare
-        {
-			private int row;
-        	private int column;
-        	private int status = BattleShipServer.UNTESTED;
-        	private int contents = 0;		// will hold boatID if one is there
-        	
-        	public GridSquare(int row, int col)
-        	{
-        		this.row = row;
-        		this.column = col;
-        	}
-        	public int getRow()
-			{
-				return row;
-			}
-			public void setRow(int row)
-			{
-				this.row = row;
-			}
-			public int getColumn()
-			{
-				return column;
-			}
-			public void setColumn(int column)
-			{
-				this.column = column;
-			}
-			public int getStatus()
-			{
-				return status;
-			}
-			public void setStatus(int status)
-			{
-				this.status = status;
-			}
-			public int getContents()
-			{
-				return contents;
-			}
-			public void setContents(int contents)
-			{
-				this.contents = contents;
-			}
-        }
+			return false;
+		}
+    	public GridSquare getSquare(int idx)
+		{
+			return this.get(idx);
+		}
+		public void setSquare(GridSquare s, int idx)
+		{
+//    		game.getServer().getLog().debug("Game " + game.getID() + " Stage " + gameStage + " Player " + playerID + " idx is " + idx + ", square is " + s); 
+			this.set(idx, s);
+		}
+		public int getId()
+		{
+			return id;
+		}
+		public void setId(int id)
+		{
+			this.id = id;
+		}
+		public boolean isHorizontal()
+		{
+			return horizontal;
+		}
+		public void setHorizontal(boolean horizontal)
+		{
+			this.horizontal = horizontal;
+		}
+		public int getStartRow()
+		{
+			return startRow;
+		}
+		public void setStartRow(int startRow)
+		{
+			this.startRow = startRow;
+		}
+		public int getStartCol()
+		{
+			return startCol;
+		}
+		public void setStartCol(int startCol)
+		{
+			this.startCol = startCol;
+		}
+    }
+    private class GridSquare
+    {
+		private int row;
+    	private int column;
+    	private int status = BattleShipServer.UNTESTED;
+    	private int contents = 0;		// will hold boatID if one is there
+    	
+    	public GridSquare(int row, int col)
+    	{
+    		this.row = row;
+    		this.column = col;
+    	}
+    	public int getRow()
+		{
+			return row;
+		}
+		public void setRow(int row)
+		{
+			this.row = row;
+		}
+		public int getColumn()
+		{
+			return column;
+		}
+		public void setColumn(int column)
+		{
+			this.column = column;
+		}
+		public int getStatus()
+		{
+			return status;
+		}
+		public void setStatus(int status)
+		{
+			this.status = status;
+		}
+		public int getContents()
+		{
+			return contents;
+		}
+		public void setContents(int contents)
+		{
+			this.contents = contents;
+		}
     }
 }		

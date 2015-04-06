@@ -27,6 +27,10 @@ public class BattleShipClient
 	int gameStage = 0;
 	cPlayer you;
 	cPlayer opp;
+    private Shot[] shots = new Shot[BattleShipServer.TOTALSHIPS];
+	private tmLog log = new tmLog(tmLog.TRACE);
+    private int shotCounter = 0;
+    private int currentShip = 0;
     private static int PORT = 8901;
     private Socket socket;
     private BufferedReader in;
@@ -34,13 +38,16 @@ public class BattleShipClient
 	private JFrame frame = new JFrame("BattleShip");
 	private JPanel mainPanel = new JPanel();    // holds turnPanel and boardPanel
 	private JPanel bottom = new JPanel();		// holds youPanel and opponentPanel	
-    private JPanel turnPanel = new JPanel();		//tells whose turn it is and holds action and message panels
+    private JPanel turnPanel = new JPanel();	// holds actionPanel, shipPanel, messageLabel, and bottom
     private JPanel actionPanel = new JPanel();
+    private JPanel shipPanel = new JPanel();
     private JPanel actionP1 = new JPanel();  // tells you whose board is displayed
     private JPanel actionP2 = new JPanel();
     private bLabel p1Label = new bLabel(actionP1, "");
     private bLabel p2Label = new bLabel(actionP2, "Board");
-    private JButton actionButton = new JButton("");
+    private bButton actionButton = new bButton(actionPanel, "");
+    private ShipButton[] shipButtons = new ShipButton[BattleShipServer.TOTALSHIPS];
+    private HorizButton horizButton;
     private bLabel messageLabel = new bLabel(turnPanel, "test message");
     private JPanel boardPanel = new JPanel();		//displays active board
     private OceanSquare[][] board = new OceanSquare[10][10];
@@ -52,9 +59,6 @@ public class BattleShipClient
     private bLabel oppLabel = new bLabel(oppPanel, "");
     private bLabel oppShotText = new bLabel(oppPanel, "Shots: ");
     private bLabel oppShotLabel = new bLabel(oppPanel, "");
-    private Shot[] shots = new Shot[BattleShipServer.TOTALSHIPS];
-	private tmLog log = new tmLog(tmLog.TRACE);
-    private int shotCounter = 0;
     /**
      * Constructs the client by connecting to a server, laying out the
      * GUI and registering GUI listeners.
@@ -73,7 +77,6 @@ public class BattleShipClient
            	you.setId(Integer.parseInt(getServerResponse()));
            	// respond with your player name
             you.setName(getPlayerName());
-            actionButton.setEnabled(false);
             frame.setTitle("BattleShip: " + you.getName());
             sendToServer("" + gameStage + you.getName());
             // set stage to WAITING until you get the opponent's information
@@ -92,6 +95,13 @@ public class BattleShipClient
         oppPanel.setBackground(tmColors.LIGHTCYAN);
         actionP1.setBackground(tmColors.LIGHTBLUE);
         actionP2.setBackground(tmColors.LIGHTBLUE);
+        shipPanel.setBackground(tmColors.LIGHTBLUE);
+        shipPanel.setLayout(new GridLayout(1, 6, 15, 15));
+        for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
+        {
+        	shipButtons[i] = new ShipButton(shipPanel, "" + (i+1));
+        }
+        horizButton = new HorizButton(shipPanel, "H");
         messageLabel.setText("Waiting for an opponent to sign on.");
         // you will communicate your name/ship data, opponent's will be returned
         youLabel.setText(you.getName());
@@ -99,7 +109,7 @@ public class BattleShipClient
         frame.getContentPane().add(mainPanel);
         mainPanel.setLayout(new GridLayout(1, 2, 10, 10));
         mainPanel.add(turnPanel);
-        turnPanel.setLayout(new GridLayout(3, 1, 10, 10));
+        turnPanel.setLayout(new GridLayout(4, 1, 10, 10));
         actionPanel.setLayout(new GridLayout(1, 3, 10, 10));
         actionPanel.setBackground(tmColors.LIGHTBLUE);
         actionButton.setFont(tmFonts.PLAIN32);
@@ -116,13 +126,23 @@ public class BattleShipClient
             	 * 4. After you've seen the answer of your opponent's turn, to begin yourturn (THEIRANSWER)
             	 */
             	if (actionButton.isEnabled())
-            	{	
-	            	if (gameStage == BattleShipServer.YOURANSWER)
+            	{
+            		if (gameStage == BattleShipServer.PLACING)
+            		{
+	            		StringBuilder sb = new StringBuilder("" + gameStage);
+	            		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
+	            		{
+	            			sb.append("3" + (i+3) + "0");
+	            		}
+	            		sendToServer(sb.toString());
+	            		actionButton.deActivate();
+	            		messageLabel.setText("Waiting for " + opp.getName() + ".");
+            		}
+            		else if (gameStage == BattleShipServer.YOURANSWER)
 	            	{
 	            		gameStage = BattleShipServer.THEIRTURN;
 	            		sendToServer("" + gameStage + BattleShipServer.READY);
-	            		actionButton.setText("");
-	            		actionButton.setEnabled(false);
+	            		actionButton.deActivate();
 	            	}
 	            	else if (gameStage == BattleShipServer.YOURTURN && shotCounter == you.getShips())
 	            	{
@@ -134,8 +154,7 @@ public class BattleShipClient
 	            		}
 	            		sendToServer(sb.toString());
 	            		messageLabel.setText("Press END to end your turn.");
-	            		actionButton.setText("END");
-	            		actionButton.setEnabled(true);
+	            		actionButton.activate("END");
 	            	}
 	            	else if (gameStage == BattleShipServer.THEIRANSWER)
 	            	{
@@ -149,11 +168,11 @@ public class BattleShipClient
             	}	
             }    
         });
-        actionPanel.add(actionButton);
         actionPanel.add(actionP1);
         actionPanel.add(actionP2);
         turnPanel.add(actionPanel);
-        turnPanel.add(messageLabel);
+        turnPanel.add(shipPanel);
+        turnPanel.add(messageLabel);      
         bottom.setLayout(new GridLayout(1, 2, 10, 10));
         bottom.add(youPanel);
         bottom.add(oppPanel);
@@ -216,12 +235,28 @@ public class BattleShipClient
 	    			opp.setId(Integer.parseInt(temp.substring(0, 1)));
 	    			opp.setName(temp.substring(2));
 	    			oppLabel.setText(opp.getName());
-	    			gameStage = (opp.getId() == 1) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;
-	    			sendToServer("" + gameStage + BattleShipServer.READY);
+	    			gameStage = BattleShipServer.PLACING;
+	    			messageLabel.setText("Place your ships.");
+	    			shotCounter = 0;
+	    			while (gameStage == BattleShipServer.PLACING)
+	    			{
+	    				if (shotCounter == you.getShips())
+	    				{
+	    					actionButton.activate("DONE");
+	    					messageLabel.setText("Press DONE when finished.");
+	    				}
+	    				else
+	    				{
+	    					actionButton.deActivate();
+	    					messageLabel.setText(you.getName() + " has placed " + shotCounter + " ships.");
+	    				}
+	    			}
 	    		}
 	    		else if (gameStage == BattleShipServer.PLACING)
 	    		{
-	    			// placeHolder for placing ships
+	    			int firstPlayer = Integer.parseInt(temp.substring(0, 1));
+	    			gameStage = (firstPlayer == you.getId()) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;
+	    			sendToServer("" + gameStage + BattleShipServer.READY);
 	    		}
 	    		else
 	    		{	
@@ -235,16 +270,14 @@ public class BattleShipClient
 	    				if (gameStage == BattleShipServer.THEIRTURN)
 	    				{
 	        	    		messageLabel.setText(cur.getName() + " is shooting.");
-	    	    			actionButton.setEnabled(false);
-	    	    			actionButton.setText("");
+	    	    			actionButton.deActivate();
 	    					gameStage = BattleShipServer.THEIRANSWER;
 	    					sendToServer("" + gameStage + BattleShipServer.READY);
 	    				}
 	    				else
 	    				{
 	    					messageLabel.setText("Press GO for your turn.");
-	    					actionButton.setText("GO");
-	    					actionButton.setEnabled(true);
+	    					actionButton.activate("GO");
 	    				}
 	    			}
 	    			else if (gameStage < BattleShipServer.THEIRTURN)
@@ -272,8 +305,7 @@ public class BattleShipClient
 	    					messageLabel.setText(you.getName() + " has won!");
 	    					gameStage = BattleShipServer.YOUWON;
 	    				}
-	    				actionButton.setText("AGAIN");
-	    				actionButton.setEnabled(true);
+	    				actionButton.activate("AGAIN");
 	    			}
 	    			else
 	    			{	
@@ -282,14 +314,12 @@ public class BattleShipClient
 		    			{
 		    				if (shotCounter == you.getShips())
 		    				{
-		    					actionButton.setEnabled(true);
-		    					actionButton.setText("FIRE");
+		    					actionButton.activate("FIRE");
 		    					messageLabel.setText("All shots are set. Fire when ready.");
 		    				}
 		    				else
 		    				{
-		    					actionButton.setText("");
-		    					actionButton.setEnabled(false);
+		    					actionButton.deActivate();
 		    					messageLabel.setText(you.getName() + " has set " + shotCounter + " of " + you.getShips() + " shots.");
 		    				}
 		    			}
@@ -361,7 +391,49 @@ public class BattleShipClient
 //        return response == JOptionPane.YES_OPTION;
     	return true;	
     }
-
+    private class bButton extends JButton
+    {
+    	public bButton(String text)
+    	{
+    		super(text);
+    		this.setFont(tmFonts.PLAIN24);
+    		this.deActivate();
+    	}
+    	public bButton(JPanel panel, String text)
+    	{
+    		super(text);
+    		this.setFont(tmFonts.PLAIN24);
+    		panel.add(this);
+    	}
+    	public void activate(String text)
+    	{
+    		this.setText(text);
+    		this.setEnabled(true);
+    		this.setVisible(true);
+    	}
+    	public void deActivate()
+    	{
+    		this.setEnabled(false);
+    		this.setVisible(false);
+    	}
+    }
+    private class ShipButton extends bButton
+    {
+    	private int row = 0;
+    	private int col = 0;
+    	private boolean horizontal = false;
+    	public ShipButton(JPanel panel, String text)
+    	{
+    		super(panel, text);
+    	}
+    }
+    private class HorizButton extends bButton
+    {
+    	public HorizButton(JPanel panel, String text)
+    	{
+    		super(panel, text);
+    	}
+    }
     private class bLabel extends JLabel
     {
     	public bLabel(String text)

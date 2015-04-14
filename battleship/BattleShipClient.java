@@ -25,12 +25,12 @@ import org.ToMar.Utils.tmLog;
 public class BattleShipClient 
 {
 	int gameStage = 0;
-	cPlayer you;
-	cPlayer opp;
+	Player you;
+	Player opp;
     private Shot[] shots = new Shot[BattleShipServer.TOTALSHIPS];
 	private tmLog log = new tmLog(tmLog.TRACE);
     private int shotCounter = 0;
-    private int currentShip = 0;
+    private int currentShip = -1;
     private static int PORT = 8901;
     private Socket socket;
     private BufferedReader in;
@@ -50,7 +50,7 @@ public class BattleShipClient
     private HorizButton horizButton;
     private bLabel messageLabel = new bLabel(turnPanel, "test message");
     private JPanel boardPanel = new JPanel();		//displays active board
-    private OceanSquare[][] board = new OceanSquare[10][10];
+    private ClientSquare[][] board = new ClientSquare[10][10];
     private JPanel youPanel = new JPanel();
     private bLabel youLabel = new bLabel(youPanel, "");
     private bLabel youShotText = new bLabel(youPanel, "Shots: ");
@@ -65,9 +65,9 @@ public class BattleShipClient
      */
     public BattleShipClient() throws Exception 
     {
-        you = new cPlayer();
-        opp = new cPlayer();
-        // Setup networking
+        you = new Player();
+        opp = new Player();
+        // Set up networking
         try
         {
             socket = new Socket(getServerAddress(), PORT);
@@ -88,6 +88,24 @@ public class BattleShipClient
         	throw new Exception(e);
         }
         mainPanel.setBackground(tmColors.BLACK);
+        boardPanel.setLayout(new GridLayout(10, 10, 1, 1));
+        for (int i = 0; i < BattleShipServer.SIZE; i++)
+        {
+        	for (int j = 0; j < BattleShipServer.SIZE; j++)
+        	{
+        		final int I = i;
+        		final int J = j;
+        		board[i][j] = new ClientSquare(i, j);
+        		board[i][j].panel.addMouseListener(new MouseAdapter() 
+                {
+                    public void mousePressed(MouseEvent e) 
+                    {
+                    	processSquare(board[I][J]); 
+                    }    
+                });
+        		boardPanel.add(board[i][j].panel);
+        	}	
+        }
         turnPanel.setBackground(tmColors.LIGHTBLUE);
         actionPanel.setBackground(tmColors.LIGHTBLUE);
         bottom.setBackground(tmColors.BLACK);
@@ -99,9 +117,52 @@ public class BattleShipClient
         shipPanel.setLayout(new GridLayout(1, 6, 15, 15));
         for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
         {
-        	shipButtons[i] = new ShipButton(shipPanel, "" + (i+1));
+        	final int I = i;
+        	shipButtons[i] = new ShipButton(shipPanel, i);
+            shipButtons[i].addMouseListener(new MouseAdapter()
+            {
+                public void mousePressed(MouseEvent e) 
+                {
+                	if (shipButtons[I].isEnabled())
+                	{	
+                		if (shipButtons[I].isSelected())
+                		{
+                			shipButtons[I].setSelected(false);
+                			currentShip = -1;
+                			messageLabel.setText("Select a ship to place.");
+                		}
+                		else 
+                		{
+                			if (currentShip > -1)
+                			{
+                				shipButtons[currentShip].setSelected(false);
+                			}
+                			shipButtons[I].setSelected(true);
+                			currentShip = I;
+                			messageLabel.setText("Placing ship " + (I + 1) + ".");
+                		}
+                	}	
+                }	
+            });
         }
         horizButton = new HorizButton(shipPanel, "H");
+        horizButton.addMouseListener(new MouseAdapter()
+        {
+            public void mousePressed(MouseEvent e) 
+            {
+            	if (horizButton.isEnabled())
+            	{
+            		if (flipCurrentShip())
+            		{
+            			messageLabel.setText("");
+            		}
+            		else
+            		{
+            			messageLabel.setText("Ship " + (currentShip + 1) + " is not safe.");
+            		}
+            	}	
+            }	
+        });
         messageLabel.setText("Waiting for an opponent to sign on.");
         // you will communicate your name/ship data, opponent's will be returned
         youLabel.setText(you.getName());
@@ -132,25 +193,28 @@ public class BattleShipClient
 	            		StringBuilder sb = new StringBuilder("" + gameStage);
 	            		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
 	            		{
-	            			sb.append("3" + (i+3) + "0");
+	            			sb.append(shipButtons[i].ship.toString());
+	            			shipButtons[i].deActivate();
 	            		}
 	            		sendToServer(sb.toString());
 	            		actionButton.deActivate();
+	            		horizButton.deActivate();
 	            		messageLabel.setText("Waiting for " + opp.getName() + ".");
+	            		gameStage = BattleShipServer.READY;
             		}
             		else if (gameStage == BattleShipServer.YOURANSWER)
 	            	{
 	            		gameStage = BattleShipServer.THEIRTURN;
-	            		sendToServer("" + gameStage + BattleShipServer.READY);
+	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            		actionButton.deActivate();
 	            	}
-	            	else if (gameStage == BattleShipServer.YOURTURN && shotCounter == you.getShips())
+	            	else if (gameStage == BattleShipServer.YOURTURN && shotCounter == you.getShipsLeft())
 	            	{
 	            		gameStage = BattleShipServer.YOURANSWER;
-	            		StringBuilder sb = new StringBuilder("" + gameStage + you.getShips());
-	            		for (int i = 0; i < you.getShips(); i++)
+	            		StringBuilder sb = new StringBuilder("" + gameStage + you.getShipsLeft());
+	            		for (int i = 0; i < you.getShipsLeft(); i++)
 	            		{
-	            			sb.append("" + shots[i].getR() + shots[i].getC());
+	            			sb.append("" + shots[i].getRow() + shots[i].getColumn());
 	            		}
 	            		sendToServer(sb.toString());
 	            		messageLabel.setText("Press END to end your turn.");
@@ -159,11 +223,11 @@ public class BattleShipClient
 	            	else if (gameStage == BattleShipServer.THEIRANSWER)
 	            	{
 	            		gameStage = BattleShipServer.YOURTURN;
-	            		sendToServer("" + gameStage + BattleShipServer.READY);
+	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            	}
 	            	else if (gameStage > BattleShipServer.THEIRANSWER)
 	            	{
-	            		sendToServer("" + gameStage + BattleShipServer.READY);
+	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            	}
             	}	
             }    
@@ -178,24 +242,6 @@ public class BattleShipClient
         bottom.add(oppPanel);
         turnPanel.add(bottom);
         mainPanel.add(boardPanel);
-        boardPanel.setLayout(new GridLayout(10, 10, 1, 1));
-        for (int i = 0; i < BattleShipServer.SIZE; i++)
-        {
-        	for (int j = 0; j < BattleShipServer.SIZE; j++)
-        	{
-        		final int I = i;
-        		final int J = j;
-        		board[i][j] = new OceanSquare();
-        		board[i][j].addMouseListener(new MouseAdapter() 
-                {
-                    public void mousePressed(MouseEvent e) 
-                    {
-                    	(board[I][J]).process(I, J); 
-                    }    
-                });
-        		boardPanel.add(board[i][j]);
-        	}	
-        }
     }
     public void sendToServer(String s)
     {
@@ -228,7 +274,7 @@ public class BattleShipClient
     	try
     	{
     		while (true)
-    		{	
+    		{
     			String temp = getServerResponse();
 	    		if (gameStage == BattleShipServer.WAITING)
 	    		{
@@ -236,32 +282,24 @@ public class BattleShipClient
 	    			opp.setName(temp.substring(2));
 	    			oppLabel.setText(opp.getName());
 	    			gameStage = BattleShipServer.PLACING;
-	    			messageLabel.setText("Place your ships.");
-	    			shotCounter = 0;
+	    			currentShip = -1;
+	    			messageLabel.setText("Select a ship to place.");
 	    			while (gameStage == BattleShipServer.PLACING)
 	    			{
-	    				if (shotCounter == you.getShips())
-	    				{
-	    					actionButton.activate("DONE");
-	    					messageLabel.setText("Press DONE when finished.");
-	    				}
-	    				else
-	    				{
-	    					actionButton.deActivate();
-	    					messageLabel.setText(you.getName() + " has placed " + shotCounter + " ships.");
-	    				}
+	    				// this code does nothing, but seems to need to be here
+	    				int counter = 1;
 	    			}
 	    		}
-	    		else if (gameStage == BattleShipServer.PLACING)
+	    		else if (gameStage == BattleShipServer.READY)
 	    		{
 	    			int firstPlayer = Integer.parseInt(temp.substring(0, 1));
 	    			gameStage = (firstPlayer == you.getId()) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;
-	    			sendToServer("" + gameStage + BattleShipServer.READY);
+	    			sendToServer("" + gameStage + BattleShipServer.OK);
 	    		}
 	    		else
 	    		{	
-	    			cPlayer cur = null;
-	    			cPlayer other = null;
+	    			Player cur = null;
+	    			Player other = null;
 	    			if (gameStage > BattleShipServer.YOURANSWER && gameStage < BattleShipServer.YOUWON)
 	    			{
 	    				//IT IS NOT YOUR TURN
@@ -272,7 +310,7 @@ public class BattleShipClient
 	        	    		messageLabel.setText(cur.getName() + " is shooting.");
 	    	    			actionButton.deActivate();
 	    					gameStage = BattleShipServer.THEIRANSWER;
-	    					sendToServer("" + gameStage + BattleShipServer.READY);
+	    					sendToServer("" + gameStage + BattleShipServer.OK);
 	    				}
 	    				else
 	    				{
@@ -287,20 +325,20 @@ public class BattleShipClient
 	    			}	
 	    			//column 0		current player's ships
 	    			//column 1		other player's ships
-	    			cur.setShips(Integer.parseInt(temp.substring(0, 1)));
-	    			other.setShips(Integer.parseInt(temp.substring(1, 2)));
-	    			youShotLabel.setText("" + you.getShips());
-	    			oppShotLabel.setText("" + opp.getShips());
+	    			cur.setShipsLeft(Integer.parseInt(temp.substring(0, 1)));
+	    			other.setShipsLeft(Integer.parseInt(temp.substring(1, 2)));
+	    			youShotLabel.setText("" + you.getShipsLeft());
+	    			oppShotLabel.setText("" + opp.getShipsLeft());
 	    			p1Label.setText(other.getName() + "'s");
 	    			displayBoard(temp.substring(2));
-	    			if (you.getShips() == 0 || opp.getShips() == 0)
+	    			if (you.getShipsLeft() == 0 || opp.getShipsLeft() == 0)
 	    			{	
-	    				if (you.getShips() == 0)
+	    				if (you.getShipsLeft() == 0)
 	    				{
 	    					messageLabel.setText(opp.getName() + " has won!");
 	    					gameStage = BattleShipServer.THEYWON;
 	    				}
-	    				else if (opp.getShips() == 0)
+	    				else if (opp.getShipsLeft() == 0)
 	    				{
 	    					messageLabel.setText(you.getName() + " has won!");
 	    					gameStage = BattleShipServer.YOUWON;
@@ -312,7 +350,7 @@ public class BattleShipClient
 		    			shotCounter = 0;
 		    			while (gameStage == BattleShipServer.YOURTURN)
 		    			{
-		    				if (shotCounter == you.getShips())
+		    				if (shotCounter == you.getShipsLeft())
 		    				{
 		    					actionButton.activate("FIRE");
 		    					messageLabel.setText("All shots are set. Fire when ready.");
@@ -320,7 +358,7 @@ public class BattleShipClient
 		    				else
 		    				{
 		    					actionButton.deActivate();
-		    					messageLabel.setText(you.getName() + " has set " + shotCounter + " of " + you.getShips() + " shots.");
+		    					messageLabel.setText(you.getName() + " has set " + shotCounter + " of " + you.getShipsLeft() + " shots.");
 		    				}
 		    			}
 	    			}	
@@ -336,6 +374,25 @@ public class BattleShipClient
         	log.error(you.getName() + ": Closing socket.");
             socket.close();
         }
+    }
+    private boolean flipCurrentShip()
+    {
+    	if (currentShip < 0)
+    	{
+    		return false;
+    	}
+    	if ("V".equalsIgnoreCase(horizButton.getText()))
+    	{
+    		// flip ship if you can 
+    		horizButton.setText("H");
+    		shipButtons[currentShip].ship.setHorizontal(false);
+    	}
+    	else
+    	{
+    		horizButton.setText("V");
+    		shipButtons[currentShip].ship.setHorizontal(true);
+    	}
+		return moveCurrentShip(shipButtons[currentShip], shipButtons[currentShip].ship.getStartRow(),shipButtons[currentShip].ship.getStartCol());
     }
     private void displayBoard(String bStr)
     {
@@ -391,6 +448,88 @@ public class BattleShipClient
 //        return response == JOptionPane.YES_OPTION;
     	return true;	
     }
+    public void processSquare(ClientSquare square)
+    {
+    	//this can only happen if it's your turn and you click on this square
+    	if (gameStage == BattleShipServer.YOURTURN)
+    	{
+    		if (square.getStatus() == BattleShipServer.AIMED)   
+    		{	// need to remove this shot from the shot queue
+    			ArrayList<Shot> sh = new ArrayList<>();
+    			int sCtr = 0;
+    			for (int i = 0; i < shotCounter; i++)
+    			{
+    				if (shots[i].getRow() == square.getRow() & shots[i].getColumn() == square.getColumn())
+    				{
+            			square.setStatus(BattleShipServer.UNTESTED);
+    				}
+    				else
+    				{
+    					sh.add(shots[i]);
+    					sCtr += 1;
+    				}
+    			}
+    			if (sCtr != (shotCounter - 1))   // should not happen
+    			{
+    				log.error("OceanSquare.process: Error 1 processing shot " + square.getRow() + ", " + square.getColumn());
+    			}
+    			for (shotCounter = 0; shotCounter < sCtr; shotCounter++)
+    			{
+    				shots[shotCounter] = sh.get(shotCounter);
+    			}
+    		}
+    		else
+    		{
+    			if (shotCounter <  you.getShipsLeft())
+    			{	
+        			shots[shotCounter] = new Shot(square.getRow(), square.getColumn());
+        			square.setStatus(BattleShipServer.AIMED);
+        			shotCounter += 1;
+    			}
+    		}
+    	}
+    	else if (gameStage == BattleShipServer.PLACING)
+    	{
+    		if (currentShip < 0)
+    		{
+    			messageLabel.setText("Select a ship, then click on the grid.");
+    		}
+    		else
+    		{
+    			if (moveCurrentShip(shipButtons[currentShip], square.getRow(), square.getColumn()))
+    			{
+    				messageLabel.setText("");
+    			}
+    			else
+        		{
+        			messageLabel.setText("Ship " + (currentShip + 1) + " is not safe.");
+        		}
+    		}
+    	}
+    }
+    private boolean moveCurrentShip(ShipButton curShip, int row, int col)
+    {
+    	boolean safe = false; 
+		curShip.setSelected(false); 			// deselect the current squares
+		curShip.setSafe(safe = curShip.ship.place(board, row, col, curShip.ship.isHorizontal()));
+		curShip.setSelected(true);				// select the new squares
+		shotCounter = 0;
+		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
+		{
+			shotCounter += (shipButtons[i].isSafe()) ? 1 : 0;
+		}
+		if (shotCounter == BattleShipServer.TOTALSHIPS)
+		{
+			actionButton.activate("GO");
+			messageLabel.setText("Press GO to begin play.");
+		}
+		else
+		{
+			actionButton.deActivate();
+		}
+		return safe;
+    }
+    
     private class bButton extends JButton
     {
     	public bButton(String text)
@@ -419,12 +558,45 @@ public class BattleShipClient
     }
     private class ShipButton extends bButton
     {
-    	private int row = 0;
-    	private int col = 0;
-    	private boolean horizontal = false;
-    	public ShipButton(JPanel panel, String text)
+    	private Ship ship = null;
+    	private boolean selected = false;
+    	private boolean safe = false;
+    	
+    	public ShipButton(JPanel panel, int id)
     	{
-    		super(panel, text);
+    		super(panel, "" + (id + 1));
+			ship = new Ship(id);
+			this.setSafe(ship.place(board, 1, id + 1, false));
+    	}
+    	public boolean isSelected()
+		{
+			return selected;
+		}
+    	public void deActivate()
+    	{
+    		this.setSelected(false);
+    		super.deActivate();
+    	}
+		public void setSelected(boolean selected)
+		{
+			this.selected = selected;
+			this.setBackground((selected) ? tmColors.YELLOW : tmColors.PALEYELLOW);
+			for (int i = 0; i < ship.size(); i++)
+			{
+				((ClientSquare) ship.get(i)).setSelected(selected);
+			}
+			if (selected)
+			{
+				horizButton.setText((ship.isHorizontal()) ? "V" : "H");
+			}
+		}
+    	public boolean isSafe()
+    	{
+    		return safe;
+    	}
+    	public void setSafe(boolean safe)
+    	{
+    		this.safe = safe;
     	}
     }
     private class HorizButton extends bButton
@@ -432,6 +604,8 @@ public class BattleShipClient
     	public HorizButton(JPanel panel, String text)
     	{
     		super(panel, text);
+    		this.setBackground(tmColors.DARKGREEN);
+    		this.setForeground(tmColors.WHITE);
     	}
     }
     private class bLabel extends JLabel
@@ -448,142 +622,41 @@ public class BattleShipClient
     		panel.add(this);
     	}
     }
-    private class cPlayer
+    private class ClientSquare extends OceanSquare
     {
-    	private int id;
-		private String name;
-    	private int ships = 5;
-    	
-    	public cPlayer()
-    	{
-    	}
-		public String getName()
-		{
-			return name;
-		}
-		public void setName(String name)
-		{
-			this.name = name;
-		}
-		public int getShips()
-		{
-			return ships;
-		}
-		public void setShips(int ships)
-		{
-			this.ships = ships;
-		}
-    	public int getId()
-		{
-			return id;
-		}
-		public void setId(int id)
-		{
-			this.id = id;
-		}
-    }
-    private class Shot
-    {
-    	int r;
-    	int c;
-		public Shot(int r, int c)
-    	{
-    		this.r = r;
-    		this.c = c;
-    	}
-		public String toString()
-		{
-			return "Row " + r + ", Column " + c;
-		}
-    	public int getR()
-		{
-			return r;
-		}
-		public void setR(int r)
-		{
-			this.r = r;
-		}
-		public int getC()
-		{
-			return c;
-		}
-		public void setC(int c)
-		{
-			this.c = c;
-		}
-    }
-    private class OceanSquare extends JPanel 
-    {
+    	JPanel panel = new JPanel();
         JLabel label = new JLabel("");
-        private int status = BattleShipServer.UNTESTED;
-        private int contents = 0;
-        
-        public OceanSquare() 
-        {
-        	this.setBackground(tmColors.CHARTREUSE);
-        	label.setForeground(tmColors.WHITE);
-        	label.setFont(tmFonts.PLAIN16);
-            add(label);
-        }
-      
-        public void setStatus(int status)
-        {
-        	this.status = status;
-       		this.setBackground((status < BattleShipServer.HIT) ? tmColors.CHARTREUSE : tmColors.DARKBLUE);
-       		label.setText((status == BattleShipServer.AIMED) ? "X" : (status == BattleShipServer.HIT) ? "+" : ""); 
-        }
-        public void setContents(int contents)
-        {
-        	this.contents = contents;
-        	label.setText((contents == 0) ? "" : "" + contents);
-        }
-        public void process(int r, int c)
-        {
-        	//this can only happen if it's your turn and you click on this square
-        	if (gameStage == BattleShipServer.YOURTURN)
-        	{
-        		if (status == BattleShipServer.AIMED)   
-        		{	// need to remove this shot from the shot queue
-        			ArrayList<Shot> sh = new ArrayList<>();
-        			int sCtr = 0;
-        			for (int i = 0; i < shotCounter; i++)
-        			{
-        				if (shots[i].getR() == r & shots[i].getC() == c)
-        				{
-                			setStatus(BattleShipServer.UNTESTED);
-        				}
-        				else
-        				{
-        					sh.add(shots[i]);
-        					sCtr += 1;
-        				}
-        			}
-        			if (sCtr != (shotCounter - 1))   // should not happen
-        			{
-        				log.error(you.getName() + ": Error 1 processing shot " + r + ", " + c);
-        			}
-        			for (shotCounter = 0; shotCounter < sCtr; shotCounter++)
-        			{
-        				shots[shotCounter] = sh.get(shotCounter);
-        			}
-        		}
-        		else
-        		{
-        			if (shotCounter <  you.getShips())
-        			{	
-	        			shots[shotCounter] = new Shot(r, c);
-	        			setStatus(BattleShipServer.AIMED);
-	        			shotCounter += 1;
-        			}
-        		}	
-        	}
-        	else
-        	{
-        		messageLabel.setText("Not your turn.");
-        	}
-        }
-    }
+        boolean selected = false;
 
+		public ClientSquare(int row, int column)
+    	{
+    		super(row, column);
+           	panel.setBackground(tmColors.CHARTREUSE);
+           	label.setForeground(tmColors.WHITE);
+           	label.setFont(tmFonts.PLAIN16);
+            panel.add(label);
+    	}
+    	public void setStatus(int status)
+    	{
+    		this.status = status;
+       		panel.setBackground((status < BattleShipServer.HIT) ? tmColors.CHARTREUSE : tmColors.DARKBLUE);
+       		label.setText((status == BattleShipServer.AIMED) ? "X" : (status == BattleShipServer.HIT) ? "+" : ""); 
+    	}
+    	public void setContents(int contents)
+    	{
+    		this.contents = contents;
+        	label.setText((contents == 0) ? "" : "" + contents);
+    	}
+    	public boolean isSelected()
+		{
+			return selected;
+		}
+		public void setSelected(boolean selected)
+		{
+			this.selected = selected;
+    		label.setForeground((selected) ? tmColors.BLUE : tmColors.WHITE);
+		}
+    }
     /**
      * Runs the client as an application.
      */

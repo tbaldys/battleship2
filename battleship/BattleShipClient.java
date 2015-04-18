@@ -284,10 +284,17 @@ public class BattleShipClient
 	    			gameStage = BattleShipServer.PLACING;
 	    			currentShip = -1;
 	    			messageLabel.setText("Select a ship to place.");
+	    			actionButton.deActivate();
+	    			int idleCounter = 0;
 	    			while (gameStage == BattleShipServer.PLACING)
 	    			{
 	    				// this code does nothing, but seems to need to be here
-	    				int counter = 1;
+	    				idleCounter += 1;
+	    				if (idleCounter == 1000000000)
+	    				{
+//	    					log.debug("waiting");
+	    					idleCounter = 0;
+	    				}
 	    			}
 	    		}
 	    		else if (gameStage == BattleShipServer.READY)
@@ -513,12 +520,18 @@ public class BattleShipClient
 		curShip.setSelected(false); 			// deselect the current squares
 		curShip.setSafe(safe = curShip.ship.place(board, row, col, curShip.ship.isHorizontal()));
 		curShip.setSelected(true);				// select the new squares
-		shotCounter = 0;
+		countShips();
+		return safe;
+    }
+    public void countShips()
+    {
+		int sCounter = 0;
 		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
 		{
-			shotCounter += (shipButtons[i].isSafe()) ? 1 : 0;
+			sCounter += (shipButtons[i].isSafe()) ? 1 : 0;
 		}
-		if (shotCounter == BattleShipServer.TOTALSHIPS)
+//		log.debug("Ship count is " + shotCounter);
+		if (sCounter == BattleShipServer.TOTALSHIPS)
 		{
 			actionButton.activate("GO");
 			messageLabel.setText("Press GO to begin play.");
@@ -527,7 +540,6 @@ public class BattleShipClient
 		{
 			actionButton.deActivate();
 		}
-		return safe;
     }
     
     private class bButton extends JButton
@@ -581,6 +593,11 @@ public class BattleShipClient
 		{
 			this.selected = selected;
 			this.setBackground((selected) ? tmColors.YELLOW : tmColors.PALEYELLOW);
+			// intended to "refresh" a ship that wasn't completely placed originally because it wasn't safe
+			if (!safe)
+			{
+				this.setSafe(this.ship.place(board, this.ship.getStartRow(), this.ship.getStartCol(), this.ship.isHorizontal()));
+			}
 			for (int i = 0; i < ship.size(); i++)
 			{
 				((ClientSquare) ship.get(i)).setSelected(selected);
@@ -589,6 +606,7 @@ public class BattleShipClient
 			{
 				horizButton.setText((ship.isHorizontal()) ? "V" : "H");
 			}
+			countShips();
 		}
     	public boolean isSafe()
     	{

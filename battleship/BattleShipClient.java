@@ -1,6 +1,5 @@
 package battleship;
 
-import java.awt.Color;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -9,15 +8,11 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.ArrayList;
-
-import javax.swing.Icon;
-import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-
 import org.ToMar.Utils.tmColors;
 import org.ToMar.Utils.tmFonts;
 import org.ToMar.Utils.tmLog;
@@ -190,6 +185,7 @@ public class BattleShipClient
             	{
             		if (gameStage == BattleShipServer.PLACING)
             		{
+            			// communicates the placement of your ships to the server
 	            		StringBuilder sb = new StringBuilder("" + gameStage);
 	            		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
 	            		{
@@ -204,12 +200,14 @@ public class BattleShipClient
             		}
             		else if (gameStage == BattleShipServer.YOURANSWER)
 	            	{
+            			// signals the end of your turn, you will now see your board being fired upon
 	            		gameStage = BattleShipServer.THEIRTURN;
 	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            		actionButton.deActivate();
 	            	}
 	            	else if (gameStage == BattleShipServer.YOURTURN && shotCounter == you.getShipsLeft())
 	            	{
+	            		// communicates your shots to the server
 	            		gameStage = BattleShipServer.YOURANSWER;
 	            		StringBuilder sb = new StringBuilder("" + gameStage + you.getShipsLeft());
 	            		for (int i = 0; i < you.getShipsLeft(); i++)
@@ -222,11 +220,13 @@ public class BattleShipClient
 	            	}
 	            	else if (gameStage == BattleShipServer.THEIRANSWER)
 	            	{
+	            		// ready to start your turn, board switches to opponent's for you to fire upon
 	            		gameStage = BattleShipServer.YOURTURN;
 	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            	}
 	            	else if (gameStage > BattleShipServer.THEIRANSWER)
 	            	{
+	            		// game is over
 	            		sendToServer("" + gameStage + BattleShipServer.OK);
 	            	}
             	}	
@@ -248,7 +248,7 @@ public class BattleShipClient
 		log.debug(you.getName() + ": Sending to Server: +" + s + "+");
         out.println(s);
     }
-    public String getServerResponse() throws Exception
+    public String getServerResponse()
     {
     	try
     	{
@@ -260,20 +260,25 @@ public class BattleShipClient
     		}
     		else
     		{
-    			throw new Exception("BattleShipClient.getServerResponse: gameStage not correct.");
+    			abort("BattleShipClient.getServerResponse: gameStage not correct.");
     		}
     	}
         catch (Exception e)
         {
-        	log.error(you.getName() + ": ERROR getting server response: " + e);
-        	throw new Exception(e);
+        	abort(you.getName() + ": ERROR getting server response: " + e);
         }
+    	return "E44OR";
+    }
+    public void abort(String message)
+    {
+    	log.error("Aborting. Message: ");
+    	gameStage = BattleShipServer.GAMEOVER;
     }
     public void play() throws Exception 
     {
     	try
     	{
-    		while (true)
+    		while (gameStage < BattleShipServer.GAMEOVER)
     		{
     			String temp = getServerResponse();
 	    		if (gameStage == BattleShipServer.WAITING)
@@ -292,7 +297,7 @@ public class BattleShipClient
 	    				idleCounter += 1;
 	    				if (idleCounter == 1000000000)
 	    				{
-//	    					log.debug("waiting");
+	    					log.debug("waiting for ship placement from player " + you.getName());
 	    					idleCounter = 0;
 	    				}
 	    			}
@@ -300,14 +305,26 @@ public class BattleShipClient
 	    		else if (gameStage == BattleShipServer.READY)
 	    		{
 	    			int firstPlayer = Integer.parseInt(temp.substring(0, 1));
+	    			// unhighlight all the ocean squares
+	    	        for (int i = 0; i < BattleShipServer.SIZE; i++)
+	    	        {
+	    	        	for (int j = 0; j < BattleShipServer.SIZE; j++)
+	    	        	{
+	    	        		board[i][j].setSelected(false);
+	    	        	}
+	    	        }	
 	    			gameStage = (firstPlayer == you.getId()) ? BattleShipServer.YOURTURN : BattleShipServer.THEIRTURN;
 	    			sendToServer("" + gameStage + BattleShipServer.OK);
+	    		}
+	    		else if (gameStage > BattleShipServer.THEIRANSWER)
+	    		{
+	    			gameOver(temp);
 	    		}
 	    		else
 	    		{	
 	    			Player cur = null;
 	    			Player other = null;
-	    			if (gameStage > BattleShipServer.YOURANSWER && gameStage < BattleShipServer.YOUWON)
+	    			if (gameStage > BattleShipServer.YOURANSWER)
 	    			{
 	    				//IT IS NOT YOUR TURN
 	    				cur = opp;
@@ -338,49 +355,38 @@ public class BattleShipClient
 	    			oppShotLabel.setText("" + opp.getShipsLeft());
 	    			p1Label.setText(other.getName() + "'s");
 	    			displayBoard(temp.substring(2));
-	    			if (you.getShipsLeft() == 0 || opp.getShipsLeft() == 0)
-	    			{	
-	    				if (you.getShipsLeft() == 0)
+	    			shotCounter = 0;
+	    			while (gameStage == BattleShipServer.YOURTURN)
+	    			{
+	    				if (shotCounter == you.getShipsLeft())
 	    				{
-	    					messageLabel.setText(opp.getName() + " has won!");
-	    					gameStage = BattleShipServer.THEYWON;
+	    					actionButton.activate("FIRE");
+	    					messageLabel.setText("All shots are set. Fire when ready.");
 	    				}
-	    				else if (opp.getShipsLeft() == 0)
+	    				else
 	    				{
-	    					messageLabel.setText(you.getName() + " has won!");
-	    					gameStage = BattleShipServer.YOUWON;
+	    					actionButton.deActivate();
+	    					messageLabel.setText(you.getName() + " has set " + shotCounter + " of " + you.getShipsLeft() + " shots.");
 	    				}
-	    				actionButton.activate("AGAIN");
 	    			}
-	    			else
-	    			{	
-		    			shotCounter = 0;
-		    			while (gameStage == BattleShipServer.YOURTURN)
-		    			{
-		    				if (shotCounter == you.getShipsLeft())
-		    				{
-		    					actionButton.activate("FIRE");
-		    					messageLabel.setText("All shots are set. Fire when ready.");
-		    				}
-		    				else
-		    				{
-		    					actionButton.deActivate();
-		    					messageLabel.setText(you.getName() + " has set " + shotCounter + " of " + you.getShipsLeft() + " shots.");
-		    				}
-		    			}
-	    			}	
-	    		}
-    		}	
-        }
+    			}
+    		}
+   		}	
         catch (Exception e)
         {
         	throw new Exception("BattleShipClient.play: " + e);
         }
-        finally 
-        {
-        	log.error(you.getName() + ": Closing socket.");
-            socket.close();
-        }
+       	log.debug(you.getName() + ": Closing socket and ending.");
+        socket.close();
+    	throw new Exception("BattleShipClient.play ending game");
+    }
+    public void gameOver(String display)
+    {
+    	// need work here -- for now, setting gameStage to GAMEOVER
+    	log.debug("Game is over, stage is " + gameStage + " " + display);
+		messageLabel.setText(gameStage == BattleShipServer.YOUWON ? you.getName() + " has won!" : opp.getName() + " has won!");
+		displayBoard(display);
+//		gameStage = BattleShipServer.GAMEOVER; 
     }
     private boolean flipCurrentShip()
     {
@@ -485,7 +491,7 @@ public class BattleShipClient
     				shots[shotCounter] = sh.get(shotCounter);
     			}
     		}
-    		else
+    		else if (square.getStatus() == BattleShipServer.UNTESTED)
     		{
     			if (shotCounter <  you.getShipsLeft())
     			{	

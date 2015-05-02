@@ -24,7 +24,6 @@ import org.ToMar.Utils.tmLog;
 public class BattleShipClient 
 {
 	int gameStage = 0;
-	ArrayList<Shot> hits = new ArrayList<>();
 	boolean human = false;
 	boolean test = false;				// set to true to test a computer player			
 	Player you;
@@ -54,7 +53,7 @@ public class BattleShipClient
     private HorizButton horizButton;
     private bLabel messageLabel = new bLabel(turnPanel, "test message");
     private JPanel boardPanel = new JPanel();		//displays active board
-    private ClientSquare[][] board = new ClientSquare[10][10];
+    private ClientSquare[][] displayBoard = new ClientSquare[10][10];
     private JPanel youPanel = new JPanel();
     private bLabel youLabel = new bLabel(youPanel, "");
     private bLabel youShotText = new bLabel(youPanel, "Shots: ");
@@ -69,7 +68,20 @@ public class BattleShipClient
      */
     public BattleShipClient() throws Exception 
     {
-        you = new Player();
+    	int n = JOptionPane.showConfirmDialog(frame,
+    		    								"Is this player human?",
+    		    								"ToMarBattleShipClient",
+    		    								JOptionPane.YES_NO_OPTION);
+    	human = (n == JOptionPane.NO_OPTION) ? false : true;
+    	if (human)
+    	{	
+    		you = new Player();
+    		you.setName((String) JOptionPane.showInputDialog(frame, "Player name: ", "Human Player", JOptionPane.QUESTION_MESSAGE, null, null, null));
+    	}
+    	else
+    	{
+    		you = new ComputerPlayer();
+    	}
         opp = new Player();
         // Set up networking
         try
@@ -80,10 +92,8 @@ public class BattleShipClient
             // stage is CONNECTING, read from server to get your own ID
            	you.setId(Integer.parseInt(getServerResponse()));
            	// respond with your player name
-            you.setName(getPlayerName());
             frame.setTitle("BattleShip: " + you.getName());
             sendToServer("" + gameStage + you.getName());
-            human = (BattleShipServer.AUTOPLAYER.equalsIgnoreCase(you.getName())) ? false : true;
             // set stage to WAITING until you get the opponent's information
             gameStage = BattleShipServer.WAITING;
         }
@@ -92,6 +102,8 @@ public class BattleShipClient
             log.error(you.getName() + ": ERROR in BattleShipClient: " + e);
         	throw new Exception(e);
         }
+        p1Label1.setAlignmentX(JLabel.CENTER_ALIGNMENT);
+        p1Label2.setAlignmentX(JLabel.CENTER_ALIGNMENT);
         mainPanel.setBackground(tmColors.BLACK);
         boardPanel.setLayout(new GridLayout(10, 10, 1, 1));
         for (int i = 0; i < BattleShipServer.SIZE; i++)
@@ -100,18 +112,18 @@ public class BattleShipClient
         	{
         		final int I = i;
         		final int J = j;
-        		board[i][j] = new ClientSquare(i, j);
+        		displayBoard[i][j] = new ClientSquare(i, j);
         		if (human)
         		{	
-        			board[i][j].panel.addMouseListener(new MouseAdapter() 
+        			displayBoard[i][j].panel.addMouseListener(new MouseAdapter() 
         			{
         				public void mousePressed(MouseEvent e) 
         				{
-        					processSquare(board[I][J]); 
+        					processSquare(displayBoard[I][J]); 
         				}    
         			});
         		}	
-        		boardPanel.add(board[i][j].panel);
+        		boardPanel.add(displayBoard[i][j].panel);
         	}	
         }
         turnPanel.setBackground(tmColors.LIGHTBLUE);
@@ -366,7 +378,7 @@ public class BattleShipClient
 	    			else
 	    			{
 	    				// computer player will call method placeShips for ship placement information and send it
-	            		sendToServer("" + gameStage + placeShips());				
+	            		sendToServer("" + gameStage + you.placeShips());				
 	            		messageLabel.setText("Waiting for " + opp.getName() + ".");
 	            		gameStage = BattleShipServer.READY;
 	    			}
@@ -379,7 +391,7 @@ public class BattleShipClient
 	    	        {
 	    	        	for (int j = 0; j < BattleShipServer.SIZE; j++)
 	    	        	{
-	    	        		board[i][j].setSelected(false);
+	    	        		displayBoard[i][j].setSelected(false);
 	    	        	}
 	    	        }
 	    	        // you send back either 4OK if it's your turn or 6OK if it's not
@@ -417,7 +429,6 @@ public class BattleShipClient
 	    			oppShotLabel.setText("" + opp.getShipsLeft());
 	    			p2Label1.setText(other.getName() + "'s");
 	    			p1Label2.setText(temp.substring(2, 4));
-	    			// this will fill the hits arraylist<Shot> with any hits on the board
 	    			displayBoard(temp.substring(4));
 	    			if (you.getShipsLeft() == 0)
 	    			{
@@ -477,8 +488,9 @@ public class BattleShipClient
 	    				{
 	    					// this will send the results of your shoot method to the server
 	    					// communicates your shots to the server
+	    					you.populateBoard(temp.substring(4));
 	    					gameStage = BattleShipServer.YOURANSWER;
-	    					sendToServer("" + gameStage + you.getShipsLeft() + shoot());
+	    					sendToServer("" + gameStage + you.getShipsLeft() + you.shoot());
 	    				}
 	    			}	
 	    			else
@@ -569,7 +581,6 @@ public class BattleShipClient
     		return;
     	}
     	int ctr = 0;
-    	hits.clear();
    		for (int i = 0; i < BattleShipServer.SIZE; i++)
    		{
    			for (int j = 0; j < BattleShipServer.SIZE; j++)
@@ -577,14 +588,10 @@ public class BattleShipClient
    				try
 				{
    					int stat = Integer.parseInt(bStr.substring(ctr, ctr + 1));
-					board[i][j].setStatus(stat);
-        			if (stat == BattleShipServer.HIT)
-        			{
-        				hits.add(new Shot(i, j));
-        			}
+					displayBoard[i][j].setStatus(stat);
 	  	    		if (incr == 2)
 	   	    		{
-	   	   				board[i][j].setContents(Integer.parseInt(bStr.substring(ctr + 1, ctr + 2)));
+	   	   				displayBoard[i][j].setContents(Integer.parseInt(bStr.substring(ctr + 1, ctr + 2)));
 	   	    		}
 	 			}
    				catch (Exception e)
@@ -614,16 +621,6 @@ public class BattleShipClient
 //            "Enter IP Address of Server:",
 //            "Welcome to BattleShip!",
 //            JOptionPane.QUESTION_MESSAGE, null, myStrings, "localhost");
-    }
-    private boolean wantsToPlayAgain() 
-    {
-//        int response = JOptionPane.showConfirmDialog(frame,
-//            "Want to play again?",
-//            "Tic Tac Toe is Fun Fun Fun",
-//            JOptionPane.YES_NO_OPTION);
-//        frame.dispose();
-//        return response == JOptionPane.YES_OPTION;
-    	return true;	
     }
     public void processSquare(ClientSquare square)
     {
@@ -688,7 +685,7 @@ public class BattleShipClient
     {
     	boolean safe = false; 
 		curShip.setSelected(false); 			// deselect the current squares
-		curShip.setSafe(safe = curShip.ship.place(board, row, col, curShip.ship.isHorizontal()));
+		curShip.setSafe(safe = curShip.ship.place(displayBoard, row, col, curShip.ship.isHorizontal()));
 		curShip.setSelected(true);				// select the new squares
 		countShips();
 		return safe;
@@ -711,107 +708,6 @@ public class BattleShipClient
 			actionButton.deActivate();
 		}
     }
-    // these methods are for computer players
-	public String shoot()
-	{
-		/*
-		 * this method should return a string of however many shots you're allowed to have
-		 * you're operating on a 10 x 10 grid of integers representing the status of each square
-		 * 0 is UNTESTED
-		 * 2 is HIT
-		 * 3 is MISS
-		 * AutoPlayer shoots N, S, E, and W of every element of hits, then randomly
-		 * This method should be overridden if AutoPlayer is extended
-		 */
-		StringBuilder sb = new StringBuilder("");
-		int sh = 0;
-		while (sh < you.getShipsLeft())			// you get as many shots as you have ships left
-		{
-			// in each execution of this loop, one shot will be created
-			// for each element of hits, if N, S, E, W don't produce a shot, go random
-			Shot s = processHits();
-			if (s != null)
-			{
-				sb.append("" + s.getRow() + s.getColumn());
-				board[s.getRow()][s.getColumn()].setStatus(BattleShipServer.AIMED);
-				sh += 1;
-			}
-			else
-			{	
-				int r = Functions.getRnd(BattleShipServer.SIZE);
-				int c = Functions.getRnd(BattleShipServer.SIZE);
-				if (board[r][c].getStatus() == BattleShipServer.UNTESTED)
-				{
-					sb.append("" + r + c);
-					board[r][c].setStatus(BattleShipServer.AIMED);
-					sh += 1;
-				}
-			}	
-		}
-		return sb.toString();
-	}
-	public Shot processHits()
-	{
-		Shot s = null;
-		for (int i = 0; i < hits.size(); i++)
-		{
-			int r = hits.get(i).getRow();
-			int c = hits.get(i).getColumn();
-			if ((board[r][c].shootNorth(board)) != null)
-			{
-				return board[r][c].shootNorth(board);
-			}	
-			else if ((board[r][c].shootSouth(board)) != null)
-			{
-				return board[r][c].shootSouth(board);
-			}	
-			else if ((board[r][c].shootEast(board)) != null)
-			{
-				return board[r][c].shootEast(board);
-			}			
-			else if ((board[r][c].shootWest(board)) != null)
-			{
-				return board[r][c].shootWest(board);
-			}	
-		}
-		return s;
-	}
-	public String placeShips()
-	{
-		/*
-		 * This method uses brute force to place ships randomly -- just keeps doing it until it works, no strategy
-		 * This method can be overridden when extending AutoPlayer
-		 */
-		StringBuilder sb = new StringBuilder();
-		Ship[] ships = new Ship[BattleShipServer.TOTALSHIPS];
-		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
-		{
-			ships[i] = new Ship(i);
-			boolean safe = false;
-			do
-			{
-				int r = Functions.getRnd(BattleShipServer.SIZE);
-				int c = Functions.getRnd(BattleShipServer.SIZE);
-				boolean hor = (Functions.getRnd(2) == 0) ? false : true;
-				safe = ships[i].place(board, r, c, hor);
-			} while (!safe);
-		}
-		for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
-		{
-			sb.append(ships[i].toString());
-		}
-		if (!test)
-		{
-	        for (int i = 0; i < BattleShipServer.SIZE; i++)
-	        {
-	        	for (int j = 0; j < BattleShipServer.SIZE; j++)
-	        	{
-	        		board[i][j].setContents(BattleShipServer.UNTESTED);
-	        	}
-	        }
-		}
-		return sb.toString();
-	}
     private class bButton extends JButton
     {
     	public bButton(String text)
@@ -848,7 +744,7 @@ public class BattleShipClient
     	{
     		super(panel, "" + (id + 1));
 			ship = new Ship(id);
-			this.setSafe(ship.place(board, 1, id + 1, false));
+			this.setSafe(ship.place(displayBoard, 1, id + 1, false));
     	}
     	public boolean isSelected()
 		{
@@ -866,7 +762,7 @@ public class BattleShipClient
 			// intended to "refresh" a ship that wasn't completely placed originally because it wasn't safe
 			if (!safe)
 			{
-				this.setSafe(this.ship.place(board, this.ship.getStartRow(), this.ship.getStartCol(), this.ship.isHorizontal()));
+				this.setSafe(this.ship.place(displayBoard, this.ship.getStartRow(), this.ship.getStartCol(), this.ship.isHorizontal()));
 			}
 			for (int i = 0; i < ship.size(); i++)
 			{

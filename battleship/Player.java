@@ -2,30 +2,17 @@ package battleship;
 
 public class Player
 {
-	private int id;
-	private String name;
-	private int shipsLeft = 5;
-	private int moves = 0;
-	boolean human = false;
+	protected int id;
+	protected String name;
+	protected int shipsLeft = 5;
+	protected OceanSquare[][] board = new OceanSquare[BattleShipServer.SIZE][BattleShipServer.SIZE];
 	
 	public Player()
 	{
 	}
-	public boolean isHuman()
+	public OceanSquare[][] getBoard()
 	{
-		return human;
-	}
-	public void setHuman(boolean human)
-	{
-		this.human = human;
-	}
-	public int getMoves()
-	{
-		return moves;
-	}
-	public void setMoves(int moves)
-	{
-		this.moves = moves;
+		return board;
 	}
 	public String getName()
 	{
@@ -50,5 +37,19 @@ public class Player
 	public void setId(int id)
 	{
 		this.id = id;
+	}
+	public String placeShips()
+	{
+		// this is a stub, overridden in ComputerPlayer
+		return BattleShipServer.OK;
+	}
+	public String shoot()
+	{
+		// this is a stub, overridden in ComputerPlayer
+		return BattleShipServer.OK;
+	}
+	public void populateBoard(String s)
+	{
+		// this is a stub, overridden in ComputerPlayer
 	}
 }

@@ -99,7 +99,9 @@ class BattleShipGame
 	PlayerThread[] players = new PlayerThread[2];
 	int gameID;
 	int updateFlag = -1;
+	int numberOfMoves = 0;
 	boolean[] readyToPlay = {false, false};
+	boolean[] moved = {false, false};
 	boolean active;
 	
 	public BattleShipGame(BattleShipServer server, int gameNumber)
@@ -122,6 +124,19 @@ class BattleShipGame
     	players[0].start();
     	players[1].start();
     }
+	public int getNumberOfMoves()
+	{
+		return numberOfMoves;
+	}
+	public void moved(int playerID)
+	{
+    	moved[playerID] = true;
+    	if (moved[0] && moved[1])
+    	{
+    		numberOfMoves += 1;
+    		moved[0] = moved[1] = false;
+    	}
+	}
 	/*
 	 * updateFlag will be set whenever shots are evaluated, then turned immediately back off
 	 */
@@ -174,7 +189,6 @@ class BattleShipGame
     {
     	Player playerInfo = new Player();
     	int gameStage = 0;
-    	private OceanSquare[][] board = new OceanSquare[BattleShipServer.SIZE][BattleShipServer.SIZE];
     	Ship[] ships = new Ship[BattleShipServer.TOTALSHIPS];
     	BattleShipGame game;
         PlayerThread opponent;
@@ -214,7 +228,7 @@ class BattleShipGame
             {
             	for (int j = 0; j < BattleShipServer.SIZE; j++)
             	{	
-            		board[i][j] = new OceanSquare(i, j);
+            		playerInfo.getBoard()[i][j] = new OceanSquare(i, j);
             	}	
             }
             for (int i = 0; i < BattleShipServer.TOTALSHIPS; i++)
@@ -251,7 +265,7 @@ class BattleShipGame
         	{
         		if (BattleShipServer.OK.equalsIgnoreCase(resp))
             	{
-            		sendToClient("" + gameStage + opponent.playerInfo.getShipsLeft() + playerInfo.getShipsLeft() + Functions.formatNumber(playerInfo.getMoves(), 2) + boardToString(true));
+            		sendToClient("" + gameStage + opponent.playerInfo.getShipsLeft() + playerInfo.getShipsLeft() + Functions.formatNumber(game.getNumberOfMoves(), 2) + boardToString(true));
             		gameStage = (playerInfo.getShipsLeft() == 0) ? BattleShipServer.THEYWON : (opponent.playerInfo.getShipsLeft() == 0) ? BattleShipServer.YOUWON : BattleShipServer.THEIRANSWER;  
             	}
             	else
@@ -270,7 +284,7 @@ class BattleShipGame
             		while(!game.retrieveAndFlipFlag(playerInfo.getId()))
             		{
             		}
-            		sendToClient("" + gameStage + opponent.playerInfo.getShipsLeft() + playerInfo.getShipsLeft() + Functions.formatNumber(playerInfo.getMoves(), 2) + boardToString(true));
+            		sendToClient("" + gameStage + opponent.playerInfo.getShipsLeft() + playerInfo.getShipsLeft() + Functions.formatNumber(game.getNumberOfMoves(), 2) + boardToString(true));
             		gameStage = (playerInfo.getShipsLeft() == 0) ? BattleShipServer.THEYWON : (opponent.playerInfo.getShipsLeft() == 0) ? BattleShipServer.YOUWON : BattleShipServer.YOURTURN;  
             	}
             	else
@@ -287,8 +301,8 @@ class BattleShipGame
                 	 *  	send opponent's board as soon as ships are placed
                 	 *      increment move number
                 	 */
-            		playerInfo.setMoves(playerInfo.getMoves() + 1);
-            		sendToClient("" + gameStage + playerInfo.getShipsLeft() + opponent.playerInfo.getShipsLeft() + Functions.formatNumber(playerInfo.getMoves(), 2) + opponent.boardToString(false));
+            		game.moved(playerInfo.getId());
+            		sendToClient("" + gameStage + playerInfo.getShipsLeft() + opponent.playerInfo.getShipsLeft() + Functions.formatNumber(game.getNumberOfMoves(), 2) + opponent.boardToString(false));
             		gameStage = (playerInfo.getShipsLeft() == 0) ? BattleShipServer.THEYWON : (opponent.playerInfo.getShipsLeft() == 0) ? BattleShipServer.YOUWON : BattleShipServer.YOURANSWER;  
             	}
             	else
@@ -306,7 +320,7 @@ class BattleShipGame
             	 */
             	processShots(resp);
             	game.setUpdateFlag(opponent.playerInfo.getId());
-        		sendToClient("" + gameStage + playerInfo.getShipsLeft() + opponent.playerInfo.getShipsLeft() + Functions.formatNumber(playerInfo.getMoves(), 2) + opponent.boardToString(false));
+        		sendToClient("" + gameStage + playerInfo.getShipsLeft() + opponent.playerInfo.getShipsLeft() + Functions.formatNumber(game.getNumberOfMoves(), 2) + opponent.boardToString(false));
         		gameStage = (this.playerInfo.getShipsLeft() == 0) ? BattleShipServer.THEYWON : (opponent.playerInfo.getShipsLeft() == 0) ? BattleShipServer.YOUWON : BattleShipServer.THEIRTURN;  
         	}
         	else 
@@ -367,11 +381,11 @@ class BattleShipGame
             	{
             		if (me)
             		{	
-            			sb.append("" + board[i][j].getStatus() + board[i][j].getContents());
+            			sb.append("" + playerInfo.getBoard()[i][j].getStatus() + playerInfo.getBoard()[i][j].getContents());
             		}
             		else
             		{	
-            			sb.append("" + board[i][j].getStatus());
+            			sb.append("" + playerInfo.getBoard()[i][j].getStatus());
             		}
             	}	
             }
@@ -401,7 +415,7 @@ class BattleShipGame
         			int col = Integer.parseInt(s.substring(ctr, ++ctr));
         			int temp = Integer.parseInt(s.substring(ctr, ++ctr));
         			boolean hor = (temp == 0) ? false : true;
-        			if (!ships[i].place(board, row, col, hor))
+        			if (!ships[i].place(playerInfo.getBoard(), row, col, hor))
         			{
         				return false;
         			}
@@ -446,17 +460,17 @@ class BattleShipGame
         }
         public boolean applyShot(int r, int c)
         {
-        	if (opponent.board[r][c].getStatus() == BattleShipServer.UNTESTED)
+        	if (opponent.playerInfo.getBoard()[r][c].getStatus() == BattleShipServer.UNTESTED)
         	{
-        		int cc = opponent.board[r][c].getContents();
+        		int cc = opponent.playerInfo.getBoard()[r][c].getContents();
         		if (cc == 0)			// nothing there
         		{
-        			opponent.board[r][c].setStatus(BattleShipServer.MISS);
+        			opponent.playerInfo.getBoard()[r][c].setStatus(BattleShipServer.MISS);
         			return false;
         		}
         		else
         		{
-        			opponent.board[r][c].setStatus(BattleShipServer.HIT);
+        			opponent.playerInfo.getBoard()[r][c].setStatus(BattleShipServer.HIT);
         			return true;
         		}
         	}
